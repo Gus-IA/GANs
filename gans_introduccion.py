@@ -170,3 +170,115 @@ with torch.no_grad():
       _ax.imshow(img)
       i+=1
   plt.show()
+
+
+# ---- Gans convolucionales ----
+
+class Generator(nn.Module):
+  def __init__(self):
+    super().__init__()
+    self.input_size = 100
+    self.inp = nn.Sequential(
+        nn.Linear(self.input_size, 7*7*128),
+        nn.BatchNorm1d(7*7*128),
+    )
+    self.main = nn.Sequential(
+        nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1, bias=False),
+        nn.BatchNorm2d(64),
+        nn.ReLU(True),
+        nn.ConvTranspose2d(64, 1, 4, stride=2, padding=1, bias=False),
+        nn.Tanh()
+    )
+
+  def forward(self, x):
+    x = self.inp(x)
+    x = x.view(-1, 128, 7, 7)
+    x = self.main(x)
+    x = x.view(x.size(0), 28*28)
+    return x
+
+
+generator = Generator()
+output = generator(torch.randn(64, 100))
+print(output.shape)
+
+
+class Dataset(torch.utils.data.Dataset):
+  def __init__(self, trainset):
+    self.imgs = torch.tensor([np.array(i[0]).flatten() / 255. for i in trainset], dtype=torch.float, device=device)
+    self.imgs = self.imgs * 2. - 1.
+    self.labels = torch.tensor([i[1] for i in trainset], dtype=torch.long, device=device)
+
+  def __len__(self):
+    return len(self.imgs)
+
+  def __getitem__(self, ix):
+    return self.imgs[ix], self.labels[ix]
+
+train = Dataset(trainset)
+print(len(train))
+
+
+img, label = train[0]
+print(img.shape, img.dtype, img.max(), img.min())
+
+
+dataloader = torch.utils.data.DataLoader(train, batch_size=32, shuffle=True)
+
+imgs, labels = next(iter(dataloader))
+print(imgs.shape, labels.shape)
+
+
+
+class Discriminator(nn.Module):
+  def __init__(self):
+    super().__init__()
+    self.main = nn.Sequential(
+        nn.Conv2d(1, 64, 4, stride=2, padding=1, bias=False),
+        nn.BatchNorm2d(64),
+        nn.ReLU(True),
+        nn.Conv2d(64, 128, 4, stride=2, padding=1, bias=False),
+        nn.BatchNorm2d(128),
+        nn.ReLU(True)
+    )
+    self.out = nn.Sequential(
+        nn.Linear(128*7*7, 1),
+        nn.Sigmoid()
+    )
+
+  def forward(self, x):
+    # esperamos vectores a la entrada de 28*28
+    x = x.view(x.size(0), 1, 28, 28)
+    x = self.main(x)
+    x = x.view(x.size(0), -1)
+    x = self.out(x)
+    return x
+  
+
+discriminator = Discriminator()
+output = discriminator(torch.randn(64, 28*28))
+print(output.shape)
+
+
+hist = fit(generator, discriminator, dataloader, crit=torch.nn.BCELoss())
+
+
+df = pd.DataFrame(hist)
+df.plot(grid=True)
+plt.show()
+
+
+generator.eval()
+with torch.no_grad():
+  noise = torch.randn((10, generator.input_size)).to(device)
+  generated_images = generator(noise)
+  fig, axs = plt.subplots(2,5,figsize=(15,5))
+  i = 0
+  for ax in axs:
+    for _ax in ax:
+      img = generated_images[i].view(28,28).cpu()
+      _ax.imshow(img)
+      i+=1
+  plt.show()
+
+
